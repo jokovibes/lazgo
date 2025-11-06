@@ -1,11 +1,12 @@
 
+
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import * as jspdf from 'jspdf';
 import 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { StudentData, TardinessRecord, GeneratedOutput, TardinessCategory } from './types';
 import { generateTardinessReport, generateMonthlyReport } from './services/geminiService';
-import { LogoIcon, SummaryIcon, WhatsAppIcon, RecapIcon, CopyIcon, CheckIcon, ExportIcon, PdfIcon, ExcelIcon, MoonIcon, SunIcon } from './components/icons';
+import { LogoIcon, SummaryIcon, WhatsAppIcon, RecapIcon, CopyIcon, CheckIcon, ExportIcon, PdfIcon, ExcelIcon, MoonIcon, SunIcon, InsightIcon, TagIcon, ClassIcon, PieChartIcon, NotificationIcon } from './components/icons';
 import { students, classNames, StudentInfo } from './data/students';
 
 const SCHOOL_START_TIME = '07:30';
@@ -24,7 +25,8 @@ const InputForm: React.FC<{
   const [name, setName] = useState('');
   const [className, setClassName] = useState('');
   const [arrivalTime, setArrivalTime] = useState(getCurrentTime);
-  const [reason, setReason] = useState('');
+  const [selectedReason, setSelectedReason] = useState('Macet');
+  const [customReason, setCustomReason] = useState('');
 
   const [nameSuggestions, setNameSuggestions] = useState<StudentInfo[]>([]);
   const [showNameSuggestions, setShowNameSuggestions] = useState(false);
@@ -77,11 +79,13 @@ const InputForm: React.FC<{
       alert('Nama, Kelas, dan Jam Kedatangan wajib diisi.');
       return;
     }
+    const reason = selectedReason === 'Lainnya...' ? customReason : selectedReason;
     onSubmit({ name, className, arrivalTime, reason });
     setName('');
     setClassName('');
     setArrivalTime(getCurrentTime());
-    setReason('');
+    setSelectedReason('Macet');
+    setCustomReason('');
   };
 
   return (
@@ -141,9 +145,35 @@ const InputForm: React.FC<{
         </div>
       </div>
       <div>
-        <label htmlFor="reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Alasan Keterlambatan (Opsional)</label>
-        <textarea id="reason" value={reason} onChange={e => setReason(e.target.value)} rows={2} className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm" />
+        <label htmlFor="reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Alasan Keterlambatan</label>
+        <select
+          id="reason"
+          value={selectedReason}
+          onChange={e => setSelectedReason(e.target.value)}
+          className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm"
+        >
+          <option>Macet</option>
+          <option>Telat Bangun</option>
+          <option>Hujan</option>
+          <option>Tidur Larut Malam</option>
+          <option value="Lainnya...">Lainnya...</option>
+        </select>
       </div>
+      {selectedReason === 'Lainnya...' && (
+        <div>
+          <label htmlFor="customReason" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Alasan Lainnya
+          </label>
+          <textarea
+            id="customReason"
+            value={customReason}
+            onChange={e => setCustomReason(e.target.value)}
+            rows={2}
+            className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm"
+            placeholder="Tuliskan alasan spesifik..."
+          />
+        </div>
+      )}
       <button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition-colors">
         Proses & Buat Laporan
       </button>
@@ -214,16 +244,169 @@ const OutputDisplay: React.FC<{
     );
 };
 
+// Helper Component for AI Insight
+const StatCard: React.FC<{ icon: React.ReactNode; title: string; value: string | React.ReactNode; color: string; }> = ({ icon, title, value, color }) => (
+    <div className="flex items-start p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+        <div className={`mr-4 flex-shrink-0 p-2 rounded-full ${color}`}>
+            {icon}
+        </div>
+        <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{title}</p>
+            {typeof value === 'string' ? (
+              <p className="font-semibold text-sm break-words">{value}</p>
+            ) : (
+              value
+            )}
+        </div>
+    </div>
+);
+
+const AIInsight: React.FC<{ records: TardinessRecord[] }> = ({ records }) => {
+    const stats = useMemo(() => {
+        if (records.length === 0) {
+            return null;
+        }
+
+        const reasonCounts = records.reduce((acc, rec) => {
+            const reason = rec.reason || 'Tidak ada';
+            acc[reason] = (acc[reason] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+
+        const mostCommonReason = Object.keys(reasonCounts).reduce((a, b) => reasonCounts[a] > reasonCounts[b] ? a : b, 'N/A');
+
+        const classCounts = records.reduce((acc, rec) => {
+// @fix: The right-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+// @fix: The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+            acc[rec.className] = (acc[rec.className] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+        
+// @fix: The right-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+// @fix: The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+        const topClass = Object.keys(classCounts).reduce((a, b) => classCounts[a] > classCounts[b] ? a : b, 'N/A');
+
+        const totalDuration = records.reduce((sum, rec) => sum + rec.durationMinutes, 0);
+        const avgDuration = records.length > 0 ? Math.round(totalDuration / records.length) : 0;
+
+        const categoryCounts = records.reduce((acc, rec) => {
+            acc[rec.category]++;
+            return acc;
+        }, { [TardinessCategory.Ringan]: 0, [TardinessCategory.Sedang]: 0, [TardinessCategory.Berat]: 0 });
+
+        return { mostCommonReason, topClass, avgDuration, categoryCounts };
+    }, [records]);
+    
+    return (
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md">
+            <h2 className="text-xl font-semibold mb-4 border-b pb-3 dark:border-gray-700 flex items-center gap-2">
+                <InsightIcon className="w-6 h-6"/> Analisis Pola Harian
+            </h2>
+            {!stats ? (
+                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-4 text-center">Belum ada data untuk dianalisis hari ini.</p>
+            ) : (
+                <div className="space-y-3">
+                    <StatCard
+                        icon={<TagIcon className="w-5 h-5 text-purple-800 dark:text-purple-200" />}
+                        title="Alasan Paling Umum"
+                        value={stats.mostCommonReason}
+                        color="bg-purple-100 dark:bg-purple-900/50"
+                    />
+                    <StatCard
+                        icon={<ClassIcon className="w-5 h-5 text-blue-800 dark:text-blue-200" />}
+                        title="Kelas Teratas"
+                        value={stats.topClass}
+                        color="bg-blue-100 dark:bg-blue-900/50"
+                    />
+                    <StatCard
+                        icon={<LogoIcon className="w-5 h-5 text-teal-800 dark:text-teal-200" />}
+                        title="Rata-rata Terlambat"
+                        value={`${stats.avgDuration} menit`}
+                        color="bg-teal-100 dark:bg-teal-900/50"
+                    />
+                    <StatCard
+                        icon={<PieChartIcon className="w-5 h-5 text-orange-800 dark:text-orange-200" />}
+                        title="Distribusi Kategori"
+                        value={
+                        <div className="flex flex-wrap gap-2 text-xs font-medium">
+                            <span className="bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300 px-2 py-0.5 rounded-full">Ringan: {stats.categoryCounts.Ringan}</span>
+                            <span className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300 px-2 py-0.5 rounded-full">Sedang: {stats.categoryCounts.Sedang}</span>
+                            <span className="bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 px-2 py-0.5 rounded-full">Berat: {stats.categoryCounts.Berat}</span>
+                        </div>
+                        }
+                        color="bg-orange-100 dark:bg-orange-900/50"
+                    />
+                </div>
+            )}
+        </div>
+    );
+};
+
 const MonthlyReport: React.FC<{ allRecords: TardinessRecord[] }> = ({ allRecords }) => {
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-    const [report, setReport] = useState<string | null>(null);
+    const [reportData, setReportData] = useState<{
+        report: string;
+        parentMessage: string | null;
+        topOffender: { name: string; className: string; count: number } | null;
+    } | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const [copiedStates, setCopiedStates] = useState({ parentMessage: false });
+
+    const handleCopy = (text: string, type: 'parentMessage') => {
+        if (!text) return;
+        navigator.clipboard.writeText(text).then(() => {
+            setCopiedStates(prev => ({ ...prev, [type]: true }));
+            setTimeout(() => setCopiedStates(prev => ({ ...prev, [type]: false })), 2000);
+        });
+    };
+
     const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
-    const currentYear = new Date().getFullYear();
-    const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
+
+    const availablePeriods = useMemo(() => {
+        const periods = new Map<number, Set<number>>();
+        allRecords.forEach(rec => {
+            const date = new Date(rec.id);
+            const year = date.getFullYear();
+            const month = date.getMonth();
+            if (!periods.has(year)) {
+                periods.set(year, new Set());
+            }
+            periods.get(year)!.add(month);
+        });
+        return periods;
+    }, [allRecords]);
+
+    const availableYears = useMemo(() => Array.from(availablePeriods.keys()).sort((a, b) => Number(b) - Number(a)), [availablePeriods]);
+    const availableMonths = useMemo(() => {
+        return availablePeriods.has(selectedYear) ? Array.from(availablePeriods.get(selectedYear)!).sort((a, b) => Number(a) - Number(b)) : [];
+    }, [selectedYear, availablePeriods]);
+
+    useEffect(() => {
+        if (availableYears.length > 0 && !availableYears.includes(selectedYear)) {
+            setSelectedYear(availableYears[0]);
+        }
+    }, [availableYears, selectedYear]);
+
+    useEffect(() => {
+        if (availableMonths.length > 0 && !availableMonths.includes(selectedMonth)) {
+             setSelectedMonth(availableMonths[availableMonths.length - 1]);
+        } else if (availableMonths.length === 0 && allRecords.length > 0) {
+            // Find the latest month with data if the current selection becomes invalid
+             if (availableYears.length > 0) {
+                 const latestYear = availableYears[0];
+                 const latestMonths = Array.from(availablePeriods.get(latestYear)!).sort((a, b) => Number(b) - Number(a));
+                 setSelectedYear(latestYear);
+                 if (latestMonths.length > 0) {
+                    setSelectedMonth(latestMonths[0]);
+                 }
+             }
+        }
+    }, [availableMonths, selectedMonth, availableYears, allRecords, availablePeriods]);
+    
+
     const reportFileName = `laporan_keterlambatan_${monthNames[selectedMonth]}_${selectedYear}`;
 
     const filteredRecords = useMemo(() => {
@@ -234,7 +417,7 @@ const MonthlyReport: React.FC<{ allRecords: TardinessRecord[] }> = ({ allRecords
     }, [allRecords, selectedMonth, selectedYear]);
 
     useEffect(() => {
-        setReport(null);
+        setReportData(null);
         setError(null);
     }, [selectedMonth, selectedYear]);
 
@@ -245,10 +428,10 @@ const MonthlyReport: React.FC<{ allRecords: TardinessRecord[] }> = ({ allRecords
         }
         setIsLoading(true);
         setError(null);
-        setReport(null);
+        setReportData(null);
         try {
             const result = await generateMonthlyReport(filteredRecords);
-            setReport(result);
+            setReportData(result);
         } catch (e: any) {
             setError(e.message || 'Gagal membuat laporan bulanan.');
         } finally {
@@ -276,7 +459,7 @@ const MonthlyReport: React.FC<{ allRecords: TardinessRecord[] }> = ({ allRecords
             ].join(','))
         ].join('\n');
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
@@ -314,7 +497,7 @@ const MonthlyReport: React.FC<{ allRecords: TardinessRecord[] }> = ({ allRecords
         }
         
         const doc = new jspdf.jsPDF();
-        const plainReport = report ? report.replace(/\*\*/g, '') : 'Tidak ada ringkasan AI.';
+        const plainReport = reportData?.report ? reportData.report.replace(/\*\*/g, '') : 'Belum ada rekap AI yang dibuat.';
 
         doc.setFontSize(18);
         doc.text(`Laporan Keterlambatan Bulanan`, 14, 22);
@@ -322,7 +505,7 @@ const MonthlyReport: React.FC<{ allRecords: TardinessRecord[] }> = ({ allRecords
         doc.setTextColor(100);
         doc.text(`Periode: ${monthNames[selectedMonth]} ${selectedYear}`, 14, 30);
         
-        if(report) {
+        if(reportData?.report) {
             doc.setFontSize(12);
             doc.text('Ringkasan Analisis AI', 14, 45);
             doc.setFontSize(10);
@@ -330,19 +513,20 @@ const MonthlyReport: React.FC<{ allRecords: TardinessRecord[] }> = ({ allRecords
             doc.text(splitText, 14, 52);
         }
 
-        const tableColumn = ["Tanggal", "Nama Siswa", "Kelas", "Durasi (mnt)", "Kategori"];
+        const tableColumn = ["Tanggal", "Nama Siswa", "Kelas", "Durasi (mnt)", "Kategori", "Alasan"];
         const tableRows = filteredRecords.map(r => [
             new Date(r.id).toLocaleDateString('id-ID'),
             r.name,
             r.className,
             r.durationMinutes,
-            r.category
+            r.category,
+            r.reason || ''
         ]);
 
         (doc as any).autoTable({
             head: [tableColumn],
             body: tableRows,
-            startY: report ? 80 : 45,
+            startY: reportData?.report ? 80 : 45,
         });
 
         doc.save(`${reportFileName}.pdf`);
@@ -356,18 +540,18 @@ const MonthlyReport: React.FC<{ allRecords: TardinessRecord[] }> = ({ allRecords
                     <div>
                         <label htmlFor="month" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Bulan</label>
                         <select id="month" value={selectedMonth} onChange={e => setSelectedMonth(parseInt(e.target.value))} className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
-                            {monthNames.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                            {availableMonths.map((m) => <option key={m} value={m}>{monthNames[m]}</option>)}
                         </select>
                     </div>
                     <div>
                         <label htmlFor="year" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tahun</label>
                         <select id="year" value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))} className="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
-                            {years.map(y => <option key={y} value={y}>{y}</option>)}
+                            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                     </div>
                     <div className="flex items-end">
                         <button onClick={handleGenerateReport} disabled={isLoading || filteredRecords.length === 0} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-sky-600 hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:bg-sky-400 disabled:cursor-not-allowed transition-colors">
-                            {isLoading ? 'Memuat...' : 'Buat Laporan AI'}
+                            {isLoading ? 'Membuat Laporan...' : 'Rekap Laporan Bulanan'}
                         </button>
                     </div>
                 </div>
@@ -377,7 +561,7 @@ const MonthlyReport: React.FC<{ allRecords: TardinessRecord[] }> = ({ allRecords
                 <div className="flex flex-wrap justify-between items-center gap-4 mb-4 border-b pb-3 border-white/30">
                     <h2 className="text-xl font-semibold text-white">Hasil Laporan Bulanan</h2>
                     <div className="flex items-center gap-2">
-                         <button onClick={handleExportPDF} title="Unduh PDF" disabled={!report} className="flex items-center gap-2 py-1 px-3 text-sm font-medium rounded-md bg-white/20 hover:bg-white/30 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                         <button onClick={handleExportPDF} title="Unduh PDF" disabled={filteredRecords.length === 0} className="flex items-center gap-2 py-1 px-3 text-sm font-medium rounded-md bg-white/20 hover:bg-white/30 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                             <PdfIcon className="w-4 h-4" /> <span>PDF</span>
                         </button>
                          <button onClick={handleExportXLSX} title="Unduh Excel" disabled={filteredRecords.length === 0} className="flex items-center gap-2 py-1 px-3 text-sm font-medium rounded-md bg-white/20 hover:bg-white/30 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
@@ -390,10 +574,27 @@ const MonthlyReport: React.FC<{ allRecords: TardinessRecord[] }> = ({ allRecords
                 </div>
                 {isLoading && <div className="text-white text-center py-10">Menganalisis data bulanan dengan AI...</div>}
                 {error && <div className="p-4 rounded-lg bg-red-900/50 text-red-300">{error}</div>}
-                {report && <div className="prose prose-sm prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: report.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br />') }} />}
-                {!isLoading && !report && !error && (
+                {reportData?.report && <div className="prose prose-sm prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: reportData.report.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br />') }} />}
+                
+                {reportData && reportData.parentMessage && reportData.topOffender && (
+                    <div className="mt-6 p-4 bg-black/20 backdrop-blur-sm rounded-lg shadow-md relative border border-white/20">
+                        <h3 className="font-semibold text-lg flex items-center gap-2 text-yellow-300">
+                            <NotificationIcon className="w-5 h-5" /> 
+                            Pemberitahuan Orang Tua
+                        </h3>
+                        <p className="mt-2 text-xs text-white/80">
+                        Saran pesan untuk orang tua dari ananda <strong>{reportData.topOffender.name}</strong> ({reportData.topOffender.className}) yang terlambat sebanyak <strong>{reportData.topOffender.count}</strong> kali bulan ini.
+                        </p>
+                        <p className="mt-3 text-sm whitespace-pre-wrap text-white bg-black/20 p-3 rounded-md">{reportData.parentMessage}</p>
+                        <button onClick={() => handleCopy(reportData.parentMessage ?? '', 'parentMessage')} className="absolute top-3 right-3 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
+                            {copiedStates.parentMessage ? <CheckIcon className="w-4 h-4 text-green-400" /> : <CopyIcon className="w-4 h-4 text-gray-200" />}
+                        </button>
+                    </div>
+                )}
+
+                {!isLoading && !reportData && !error && (
                     <div className="text-center py-10 text-gray-400">
-                        <p>Pilih bulan dan tahun, lalu klik "Buat Laporan AI" untuk melihat analisis.</p>
+                        <p>Pilih bulan dan tahun, lalu klik "Rekap Laporan Bulanan" untuk melihat analisis AI.</p>
                         <p className="text-xs mt-2">({filteredRecords.length} catatan ditemukan untuk periode ini)</p>
                     </div>
                 )}
@@ -515,6 +716,102 @@ export default function App() {
     }
   }, [dailyRecords]);
 
+  const dailyReportFileName = `laporan_keterlambatan_harian_${new Date().toLocaleDateString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-')}`;
+
+  const handleDailyExportCSV = () => {
+      if (dailyRecords.length === 0) {
+          alert('Tidak ada data untuk diekspor.');
+          return;
+      }
+      const headers = ['ID', 'Tanggal', 'Nama', 'Kelas', 'Jam Datang', 'Durasi Terlambat (mnt)', 'Kategori', 'Alasan'];
+      const csvContent = [
+          headers.join(','),
+          ...dailyRecords.map(r => [
+              `"${r.id}"`,
+              `"${new Date(r.id).toLocaleDateString('id-ID')}"`,
+              `"${r.name}"`,
+              `"${r.className}"`,
+              `"${r.arrivalTime}"`,
+              r.durationMinutes,
+              r.category,
+              `"${r.reason || ''}"`
+          ].join(','))
+      ].join('\n');
+
+      const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${dailyReportFileName}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
+  const handleDailyExportXLSX = () => {
+      if (dailyRecords.length === 0) {
+          alert('Tidak ada data untuk diekspor.');
+          return;
+      }
+      const dataToExport = dailyRecords.map(r => ({
+          'Tanggal': new Date(r.id).toLocaleDateString('id-ID'),
+          'Nama Siswa': r.name,
+          'Kelas': r.className,
+          'Jam Datang': r.arrivalTime,
+          'Durasi Terlambat (menit)': r.durationMinutes,
+          'Kategori': r.category,
+          'Alasan': r.reason || '',
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Keterlambatan Harian');
+      XLSX.writeFile(workbook, `${dailyReportFileName}.xlsx`);
+  };
+
+  const handleDailyExportPDF = () => {
+      if (dailyRecords.length === 0) {
+          alert('Tidak ada data untuk diekspor.');
+          return;
+      }
+      if (!output) {
+          alert('Laporan AI belum dibuat. Mohon proses data terlebih dahulu.');
+          return;
+      }
+      
+      const doc = new jspdf.jsPDF();
+      const plainRecap = output.dailyRecap.replace(/\*\*/g, '');
+
+      doc.setFontSize(18);
+      doc.text(`Laporan Keterlambatan Harian`, 14, 22);
+      doc.setFontSize(11);
+      doc.setTextColor(100);
+      doc.text(`Tanggal: ${new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`, 14, 30);
+      
+      doc.setFontSize(12);
+      doc.text('Rekap Harian (AI)', 14, 45);
+      doc.setFontSize(10);
+      const splitText = doc.splitTextToSize(plainRecap, 180);
+      doc.text(splitText, 14, 52);
+
+      const tableColumn = ["Nama Siswa", "Kelas", "Jam Datang", "Durasi (mnt)", "Kategori"];
+      const tableRows = dailyRecords.map(r => [
+          r.name,
+          r.className,
+          r.arrivalTime,
+          r.durationMinutes,
+          r.category
+      ]);
+
+      (doc as any).autoTable({
+          head: [tableColumn],
+          body: tableRows,
+          startY: 75,
+      });
+
+      doc.save(`${dailyReportFileName}.pdf`);
+  };
+
   const TabButton: React.FC<{
     label: string;
     isActive: boolean;
@@ -566,6 +863,9 @@ export default function App() {
                     <h2 className="text-xl font-semibold mb-4 border-b pb-3 dark:border-gray-700">Input Data Keterlambatan</h2>
                     <InputForm onSubmit={handleFormSubmit} />
                   </div>
+
+                  <AIInsight records={dailyRecords} />
+
                   {dailyRecords.length > 0 && (
                     <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md">
                       <h2 className="text-xl font-semibold mb-4 border-b pb-3 dark:border-gray-700">Riwayat Hari Ini</h2>
@@ -592,9 +892,22 @@ export default function App() {
                 </div>
                 
                 <div className="bg-blue-800/30 dark:bg-white/5 backdrop-blur-md p-6 rounded-xl shadow-lg">
-                  <div className="border-b border-white/30 pb-3 mb-4">
-                    <h2 className="text-xl font-semibold text-white">Laporan Harian</h2>
-                    <p className="text-sm text-sky-200 dark:text-sky-300">{new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                  <div className="flex flex-wrap justify-between items-center gap-4 border-b border-white/30 pb-3 mb-4">
+                    <div>
+                        <h2 className="text-xl font-semibold text-white">Laporan Harian</h2>
+                        <p className="text-sm text-sky-200 dark:text-sky-300">{new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={handleDailyExportPDF} title="Unduh PDF" disabled={dailyRecords.length === 0 || !output} className="flex items-center gap-2 py-1 px-3 text-sm font-medium rounded-md bg-white/20 hover:bg-white/30 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            <PdfIcon className="w-4 h-4" /> <span>PDF</span>
+                        </button>
+                        <button onClick={handleDailyExportXLSX} title="Unduh Excel" disabled={dailyRecords.length === 0} className="flex items-center gap-2 py-1 px-3 text-sm font-medium rounded-md bg-white/20 hover:bg-white/30 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            <ExcelIcon className="w-4 h-4" /> <span>Excel</span>
+                        </button>
+                        <button onClick={handleDailyExportCSV} title="Unduh CSV" disabled={dailyRecords.length === 0} className="flex items-center gap-2 py-1 px-3 text-sm font-medium rounded-md bg-white/20 hover:bg-white/30 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            <ExportIcon className="w-4 h-4" /> <span>CSV</span>
+                        </button>
+                    </div>
                   </div>
                   <OutputDisplay output={output} isLoading={isReportLoading} error={error} />
                 </div>
