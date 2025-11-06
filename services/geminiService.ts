@@ -1,10 +1,10 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { TardinessRecord, GeneratedOutput } from '../types';
 
-const API_KEY = import.meta.env.VITE_API_KEY;
+const API_KEY = process.env.API_KEY;
 
 if (!API_KEY) {
-  throw new Error("VITE_API_KEY environment variable not set");
+  throw new Error("API_KEY environment variable not set");
 }
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
@@ -78,54 +78,87 @@ export async function generateTardinessReport(
 }
 
 
-export async function generateMonthlyReport(records: TardinessRecord[]): Promise<string> {
+export async function generateMonthlyReport(records: TardinessRecord[]): Promise<{
+  report: string;
+  parentMessage: string | null;
+  topOffender: { name: string; className: string; count: number } | null;
+}> {
+    if (records.length === 0) {
+        return { report: "Tidak ada data keterlambatan untuk bulan ini.", parentMessage: null, topOffender: null };
+    }
+
+    // 1. Find top offender
+    const tardinessCounts: Record<string, { name: string; className: string; count: number }> = {};
+    for (const record of records) {
+        if (!tardinessCounts[record.name]) {
+            tardinessCounts[record.name] = { name: record.name, className: record.className, count: 0 };
+        }
+        tardinessCounts[record.name].count++;
+    }
+
+    const topOffender = Object.values(tardinessCounts).sort((a, b) => b.count - a.count)[0];
+    
+    // Condition: Only generate a message if someone is late 3 or more times.
+    const shouldGenerateParentMessage = topOffender && topOffender.count >= 3;
+
     const formattedData = records.map(r => 
-        `- Tanggal: ${new Date(r.id).toLocaleDateString('id-ID')}, Nama: ${r.name}, Kelas: ${r.className}, Terlambat: ${r.durationMinutes} menit, Kategori: ${r.category}, Alasan: ${r.reason || '-'}`
+        `- Tgl: ${new Date(r.id).toLocaleDateString('id-ID')}, Nama: ${r.name}, Kelas: ${r.className}, Terlambat: ${r.durationMinutes} menit, Kategori: ${r.category}`
     ).join('\n');
 
+    // 2. Build the prompt
     const prompt = `
-        Kamu adalah LazGo, seorang analis data sekolah yang bertugas membuat laporan bulanan tentang keterlambatan siswa.
-
-        Berikut adalah data mentah keterlambatan siswa untuk bulan ini:
+        Kamu adalah LazGo, seorang analis data sekolah yang cermat dan profesional.
+        
+        Data Keterlambatan Bulan Ini:
         ${formattedData}
-
+        
         ---
-
+        
         Instruksi:
-        Berdasarkan data di atas, buatlah laporan analisis yang komprehensif dalam Bahasa Indonesia. Laporan harus mencakup poin-poin berikut, dengan format yang jelas menggunakan markdown (gunakan **...** untuk tebal).
-
-        **Laporan Analisis Keterlambatan Bulanan**
-
-        **1. Ringkasan Umum**
-        - Total Keterlambatan: [Jumlah total keterlambatan dalam sebulan]
-        - Rata-rata Durasi Keterlambatan: [Hitung rata-rata durasi keterlambatan dalam menit]
-        - Rincian Kategori:
-            - Ringan: [Jumlah]
-            - Sedang: [Jumlah]
-            - Berat: [Jumlah]
-
-        **2. Tren dan Pola Utama**
-        - [Identifikasi tren yang paling menonjol. Contoh: "Keterlambatan paling sering terjadi pada hari Senin pagi" atau "Terjadi peningkatan jumlah keterlambatan di minggu ketiga bulan ini".]
-        - [Sebutkan pola lain yang menarik jika ada.]
-
-        **3. Siswa dengan Keterlambatan Terbanyak**
-        - [Sebutkan 3-5 siswa yang paling sering terlambat, beserta jumlah keterlambatannya. Contoh: "1. Nama Siswa (Kelas) - 5 kali terlambat".]
-
-        **4. Rekomendasi**
-        - [Berikan 1-2 rekomendasi singkat yang dapat ditindaklanjuti oleh pihak sekolah berdasarkan analisis. Contoh: "Disarankan untuk memberikan perhatian khusus kepada siswa-siswa yang disebutkan di atas" atau "Mungkin perlu dilakukan evaluasi penyebab keterlambatan yang meningkat di minggu ketiga.".]
-
-        Gunakan bahasa yang profesional dan mudah dipahami.
+        Berdasarkan data di atas, hasilkan objek JSON dengan struktur yang TEPAT sebagai berikut:
+        {
+          "report": "string (dalam format markdown)",
+          "parentMessage": "string atau null"
+        }
+        
+        1.  Untuk kunci "report":
+            Buatlah laporan analisis markdown yang komprehensif. Laporan harus mencakup:
+            - **Laporan Analisis Keterlambatan Bulanan** (sebagai judul utama)
+            - **1. Ringkasan Umum**: Total keterlambatan, rata-rata durasi, rincian per kategori.
+            - **2. Tren dan Pola Utama**: Identifikasi tren menonjol.
+            - **3. Siswa dengan Keterlambatan Terbanyak**: Sebutkan 3-5 siswa teratas beserta jumlah keterlambatannya.
+            - **4. Rekomendasi**: Berikan 1-2 rekomendasi singkat dan dapat ditindaklanjuti.
+        
+        ${shouldGenerateParentMessage
+          ? `2. Untuk kunci "parentMessage":
+            Siswa yang paling sering terlambat adalah **${topOffender.name}** dari kelas **${topOffender.className}** dengan total **${topOffender.count}** kali keterlambatan.
+            Buatkan draf pesan WhatsApp yang formal, sopan, dan konstruktif untuk orang tua/wali siswa tersebut. Tujuannya adalah untuk memberitahu, mengungkapkan keprihatinan, dan mengajak berdiskusi untuk mencari solusi bersama. Awali dengan "Yth. Bapak/Ibu Orang Tua/Wali dari ananda ${topOffender.name}". Jelaskan jumlah keterlambatannya dan sampaikan harapan untuk bekerja sama.`
+          : `2. Untuk kunci "parentMessage":
+            Karena tidak ada siswa dengan jumlah keterlambatan yang signifikan (kurang dari 3 kali), kembalikan nilai null untuk kunci ini.`
+        }
     `;
 
+    // 3. API Call
     try {
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: prompt
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+            }
         });
 
-        return response.text;
+        const resultJsonString = response.text;
+        const resultJson = JSON.parse(resultJsonString);
+        
+        return {
+            report: resultJson.report || "Gagal memuat laporan dari AI.",
+            parentMessage: resultJson.parentMessage,
+            topOffender: shouldGenerateParentMessage ? topOffender : null,
+        };
+
     } catch (error) {
         console.error("Error calling Gemini API for monthly report:", error);
-        throw new Error("Tidak dapat menghasilkan laporan bulanan dari AI. Mohon coba lagi.");
+        throw new Error("Gagal memproses laporan bulanan dari AI. Format respons mungkin tidak valid.");
     }
 }
